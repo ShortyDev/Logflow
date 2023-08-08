@@ -55,8 +55,8 @@ public class Logflow {
             log.info("Initializing web server...");
             var isSSL = false;
             if (sslKeystorePath == null || sslKeystorePassword == null || !webUseSSL) {
-                var errorMessage = !webUseSSL ? "Make sure to start Logflow with -webUseSSL" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
-                log.warn("Not using SSL for web server ({})", errorMessage);
+                var message = !webUseSSL ? "Start Logflow with -webUseSSL to enable" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
+                log.warn("Not using SSL for web server ({})", message);
             } else {
                 log.info("Using SSL for web server");
                 isSSL = true;
@@ -77,8 +77,8 @@ public class Logflow {
                 log.info("Initializing socket server...");
                 var isSSL = false;
                 if (sslKeystorePath == null || sslKeystorePassword == null || !socketUseSSL) {
-                    var errorMessage = !socketUseSSL ? "Make sure to start Logflow with -socketUseSSL" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
-                    log.warn("Not using SSL for socket server ({})", errorMessage);
+                    var message = !socketUseSSL ? "Start Logflow with -socketUseSSL to enable" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
+                    log.warn("Not using SSL for socket server ({})", message);
                 } else {
                     log.info("Using SSL for socket server");
                     isSSL = true;
