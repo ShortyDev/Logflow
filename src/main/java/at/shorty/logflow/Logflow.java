@@ -96,7 +96,7 @@ public class Logflow {
                             try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
                                 String line;
                                 while ((line = bufferedReader.readLine()) != null) {
-                                    log.info("Socket message: " + line);
+                                    // TODO: Implement socket server
                                 }
                             } catch (IOException e) {
                                 log.warn("Unexpected exception while reading socket", e);
