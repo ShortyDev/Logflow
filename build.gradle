@@ -1,0 +1,50 @@
+plugins {
+    id 'java'
+}
+
+group = 'at.shorty'
+version = '1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(18)
+    }
+}
+
+tasks.register('fatJar', Jar) {
+    manifest {
+        attributes 'Main-Class': 'at.shorty.logflow.bootstrap.LogflowBootstrap'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    with jar
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'commons-cli:commons-cli:1.5.0'
+    implementation 'com.mysql:mysql-connector-j:8.0.33'
+    implementation 'com.sparkjava:spark-core:2.9.4'
+    implementation 'com.zaxxer:HikariCP:5.0.1'
+    implementation "org.mariadb.jdbc:mariadb-java-client:3.1.4"
+    implementation 'org.slf4j:slf4j-api:1.7.25'
+    implementation 'org.slf4j:slf4j-simple:1.7.25'
+    implementation 'ch.qos.logback:logback-classic:1.4.8'
+    compileOnly 'org.projectlombok:lombok:1.18.28'
+    annotationProcessor 'org.projectlombok:lombok:1.18.28'
+
+    testCompileOnly 'org.projectlombok:lombok:1.18.28'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.28'
+    testImplementation platform('org.junit:junit-bom:5.9.1')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}
