@@ -69,18 +69,31 @@ public class Logflow {
 
         var sslKeystorePath = System.getProperty("javax.net.ssl.keyStore");
         var sslKeystorePassword = System.getProperty("javax.net.ssl.keyStorePassword");
+        var sslPemCert = System.getProperty("at.shorty.logflow.ssl.pem.cert");
+        var sslPemPrivateKey = System.getProperty("at.shorty.logflow.ssl.pem.privateKey");
+        boolean providedSsl = sslKeystorePath != null && sslKeystorePassword != null || sslPemCert != null && sslPemPrivateKey != null;
         if (!noWebServer) {
             log.info("Initializing web server...");
             var isSSL = false;
             SSLPlugin sslPlugin;
-            if (sslKeystorePath == null || sslKeystorePassword == null || !webUseSSL) {
+            if (!providedSsl || !webUseSSL) {
                 sslPlugin = null;
-                var message = !webUseSSL ? "Start Logflow with -webUseSSL to enable" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
+                var message = !webUseSSL ? "Start Logflow with -webUseSSL to enable" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword or at.shorty.logflow.ssl.pem.cert and at.shorty.logflow.ssl.pem.privateKey system properties";
                 log.warn("Not using SSL for web server ({})", message);
             } else {
                 log.info("Using SSL for web server");
                 isSSL = true;
-                sslPlugin = new SSLPlugin(conf -> conf.keystoreFromPath(sslKeystorePath, sslKeystorePassword));
+                sslPlugin = new SSLPlugin(conf -> {
+                    if (sslPemCert == null || sslPemPrivateKey == null) {
+                        conf.keystoreFromPath(sslKeystorePath, sslKeystorePassword);
+                        log.info("Using keystore for SSL (Could not find PEM cert or private key)");
+                    } else {
+                        conf.pemFromPath(sslPemCert, sslPemPrivateKey);
+                        log.info("Using PEM cert for SSL");
+                    }
+                    conf.securePort = 2096;
+                    conf.insecure = false;
+                });
             }
             var javalinPort = System.getenv("LOGFLOW_WEB_PORT");
             if (javalinPort == null) {
