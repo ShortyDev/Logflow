@@ -27,19 +27,19 @@ public class PacketHandler {
     }
 
     public Packet handleJsonInput(String json) throws JsonProcessingException {
-        WrappedPacket wrappedPacket = objectMapper.readValue(json, WrappedPacket.class);
+        var wrappedPacket = objectMapper.readValue(json, WrappedPacket.class);
         return objectMapper.readValue(wrappedPacket.getPacket(), getPacket(wrappedPacket.getId()));
     }
 
     public WrappedPacket handlePacket(Packet packet) throws JsonProcessingException {
-        WrappedPacket wrappedPacket = new WrappedPacket();
+        var wrappedPacket = new WrappedPacket();
         wrappedPacket.setId(packet.getClass().getAnnotation(PacketInfo.class).id());
         wrappedPacket.setPacket(objectMapper.writeValueAsString(packet));
         return wrappedPacket;
     }
 
     private Class<? extends Packet> getPacket(int id) {
-        for (Packet packet : packets) {
+        for (var packet : packets) {
             if (packet.getClass().getAnnotation(PacketInfo.class).id() == id) {
                 return packet.getClass();
             }

@@ -16,18 +16,18 @@ public class Logtest {
 
     public static void main(String[] args) throws InterruptedException {
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-            Socket socket = new Socket("localhost", 7200);
-            InPacketAuth inPacketAuth = new InPacketAuth();
+            var objectMapper = new ObjectMapper();
+            var socket = new Socket("localhost", 7200);
+            var inPacketAuth = new InPacketAuth();
             inPacketAuth.setToken("");
-            WrappedPacket wrappedPacket = new WrappedPacket();
+            var wrappedPacket = new WrappedPacket();
             wrappedPacket.setId(0);
             wrappedPacket.setPacket(objectMapper.writeValueAsString(inPacketAuth));
             socket.getOutputStream().write((objectMapper.writeValueAsString(wrappedPacket) + "\n").getBytes());
             while (true) {
-                InPacketLog inPacketLog = new InPacketLog();
-                String content = "Added a new user with id " + new Random().nextInt(100);
-                String base64Encoded = Base64.getEncoder().encodeToString(content.getBytes());
+                var inPacketLog = new InPacketLog();
+                var content = "Added a new user with id " + new Random().nextInt(100);
+                var base64Encoded = Base64.getEncoder().encodeToString(content.getBytes());
                 System.out.println(base64Encoded);
                 inPacketLog.setContent(base64Encoded);
                 inPacketLog.setSource("test-source");

@@ -5,7 +5,6 @@ import at.shorty.logflow.hikari.HikariConnectionPool;
 import at.shorty.logflow.ingest.IngestHandler;
 import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.PacketHandler;
-import at.shorty.logflow.ingest.packet.WrappedPacket;
 import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
 import at.shorty.logflow.ingest.source.IngestSource;
 import at.shorty.logflow.util.LogflowArgsParser;
@@ -22,8 +21,6 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 @Slf4j
@@ -59,7 +56,7 @@ public class Logflow {
         var sslKeystorePassword = System.getProperty("javax.net.ssl.keyStorePassword");
         var sslPemCert = System.getProperty("at.shorty.logflow.ssl.pem.cert");
         var sslPemPrivateKey = System.getProperty("at.shorty.logflow.ssl.pem.privateKey");
-        boolean providedSsl = sslKeystorePath != null && sslKeystorePassword != null || sslPemCert != null && sslPemPrivateKey != null;
+        var providedSsl = sslKeystorePath != null && sslKeystorePassword != null || sslPemCert != null && sslPemPrivateKey != null;
         if (!noWebServer) {
             log.info("Initializing web server...");
             var isSSL = false;
@@ -101,19 +98,19 @@ public class Logflow {
                             return;
                         }
                         if (!authHandler.authenticate(token)) {
-                            OutPacketAuthResponse outPacketAuthResponse = new OutPacketAuthResponse();
+                            var outPacketAuthResponse = new OutPacketAuthResponse();
                             outPacketAuthResponse.setSuccess(false);
-                            WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
-                            String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                            var wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
+                            var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
                             ctx.send(json);
                             ctx.session.close();
                             log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
                             return;
                         }
-                        InetAddress address = InetAddress.getByName(ctx.host());
-                        PipedOutputStream pipedOutputStream = new PipedOutputStream();
-                        PipedInputStream pipedInputStream = new PipedInputStream(pipedOutputStream);
-                        OutputStream outputStream = new OutputStream() {
+                        var address = InetAddress.getByName(ctx.host());
+                        var pipedOutputStream = new PipedOutputStream();
+                        var pipedInputStream = new PipedInputStream(pipedOutputStream);
+                        var outputStream = new OutputStream() {
                             @Override
                             public void write(int b) {
                                 ctx.send(b);
@@ -127,7 +124,7 @@ public class Logflow {
                             }
                         });
                         log.info("Successfully authenticated websocket connection from {}", ctx.host());
-                        IngestSource ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
+                        var ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
                             try {
                                 pipedInputStream.close();
                                 pipedOutputStream.close();
@@ -167,7 +164,7 @@ public class Logflow {
                     try (var sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(Integer.parseInt(finalSocketPort))) {
                         log.info("SSL socket server started");
                         while (true) {
-                            Socket socket = sslServerSocket.accept();
+                            var socket = sslServerSocket.accept();
                             new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
                         }
                     } catch (IOException e) {
@@ -177,7 +174,7 @@ public class Logflow {
                     try (var serverSocket = new ServerSocket(Integer.parseInt(finalSocketPort))) {
                         log.info("Socket server started");
                         while (true) {
-                            Socket socket = serverSocket.accept();
+                            var socket = serverSocket.accept();
                             new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
                         }
                     } catch (IOException e) {
@@ -194,7 +191,6 @@ public class Logflow {
             log.info("Logflow shutdown");
         }));
         log.info("Logflow started");
-        
         setupDatabase(connectionPool);
     }
 
@@ -202,7 +198,7 @@ public class Logflow {
         log.info("Setting up database...");
         try (var connection = connectionPool.getConnection()) {
             log.info("Creating tables...");
-            try (PreparedStatement statement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS logs (" +
+            try (var statement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS logs (" +
                     "id INT NOT NULL AUTO_INCREMENT, " +
                     "time_stamp TIMESTAMP NOT NULL, " +
                     "source VARCHAR(255) NOT NULL, " +

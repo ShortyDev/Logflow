@@ -5,7 +5,6 @@ import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.Packet;
 import at.shorty.logflow.ingest.packet.PacketHandler;
 import at.shorty.logflow.ingest.packet.PacketInfo;
-import at.shorty.logflow.ingest.packet.WrappedPacket;
 import at.shorty.logflow.ingest.packet.impl.InPacketAuth;
 import at.shorty.logflow.ingest.packet.impl.InPacketLog;
 import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
@@ -27,19 +26,19 @@ public class IngestHandler {
 
     public IngestHandler(IngestSource ingestSource, PacketHandler packetHandler, AuthHandler authHandler, LogAction logAction, boolean preAuth) {
         new Thread(() -> {
-            try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(ingestSource.inputStream()))) {
+            try (var bufferedReader = new BufferedReader(new InputStreamReader(ingestSource.inputStream()))) {
                 String line;
-                boolean authenticated = preAuth;
+                var authenticated = preAuth;
                 while ((line = bufferedReader.readLine()) != null) {
                     if (!authenticated) {
                         try {
                             Packet packet = packetHandler.handleJsonInput(line);
                             if (packet instanceof InPacketAuth inPacketAuth) {
                                 authenticated = authHandler.authenticate(inPacketAuth.getToken());
-                                OutPacketAuthResponse outPacketAuthResponse = new OutPacketAuthResponse();
+                                var outPacketAuthResponse = new OutPacketAuthResponse();
                                 outPacketAuthResponse.setSuccess(authenticated);
-                                WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
-                                String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                                var wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
+                                var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
                                 ingestSource.outputStream().write((json + "\n").getBytes());
                                 if (authenticated) {
                                     log.info("Successfully authenticated {} connection from {}", ingestSource.type().friendlyName.toLowerCase(), ingestSource.address().getHostAddress());
@@ -54,7 +53,7 @@ public class IngestHandler {
                         }
                     } else {
                         try {
-                            Packet packet = packetHandler.handleJsonInput(line);
+                            var packet = packetHandler.handleJsonInput(line);
                             if (packet instanceof InPacketLog inPacketLog) {
                                 inPacketLog.setSourceIp(ingestSource.address().getHostAddress());
                                 if (inPacketLog.getContent() != null) {
@@ -63,9 +62,9 @@ public class IngestHandler {
                                 if (inPacketLog.getTags() == null) {
                                     inPacketLog.setTags(new String[0]);
                                 }
-                                OutPacketLogResponse outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
-                                WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
-                                String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                                var outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
+                                var wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
+                                var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
                                 ingestSource.outputStream().write((json + "\n").getBytes());
                                 if (!outPacketLogResponse.isSuccess()) {
                                     log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
@@ -94,7 +93,7 @@ public class IngestHandler {
 
     @NotNull
     private static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
-        OutPacketLogResponse outPacketLogResponse = new OutPacketLogResponse();
+        var outPacketLogResponse = new OutPacketLogResponse();
         for (String tag : inPacketLog.getTags()) {
             if (!tag.matches("^[a-zA-Z0-9_]*$")) {
                 outPacketLogResponse.setSuccess(false);

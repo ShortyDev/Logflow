@@ -1,16 +1,15 @@
 package at.shorty.logflow.util;
 
 import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 
 public class LogflowArgsParser {
 
     public static CommandLine parse(String[] args) {
-        CommandLineParser parser = new DefaultParser();
+        var parser = new DefaultParser();
 
-        Options options = new Options();
+        var options = new Options();
         options.addOption("noWebServer", false, "Do not start web server");
         options.addOption("noSocketServer", false, "Do not start socket server");
         options.addOption("webUseSSL", false, "Use SSL for web server");

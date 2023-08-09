@@ -5,7 +5,7 @@ import at.shorty.logflow.Logflow;
 public class LogflowBootstrap {
 
     public static void main(String[] args) {
-        Logflow logflow = new Logflow();
+        var logflow = new Logflow();
         logflow.init(args);
     }
 
