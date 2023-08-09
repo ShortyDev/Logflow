@@ -37,7 +37,15 @@ The Websockets ingestion is similar to the HTTP ingestion. The only difference i
 {
   "timestamp": 1691572414,
   "level": "INFO",
-  ...
+  "source": "node-1",
+  "content": "Node 1 is running",
+  "context": "cluster-5",
+  "tags": [
+    "node",
+    "status",
+    "running"
+  ],
+  "metadata": "healthcheck:ok"
 }
 ```
 The fields `timestamp`, `level`, `source` and `context` are required. The other fields are optional.
@@ -47,7 +55,15 @@ The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, i
 {
   "timestamp": 1691572414,
   "level": "INFO",
-  ...
+  "source": "node-1",
+  "content": "Node 1 is running",
+  "context": "cluster-5",
+  "tags": [
+    "node",
+    "status",
+    "running"
+  ],
+  "metadata": "healthcheck:ok"
 }
 ```
 ---
