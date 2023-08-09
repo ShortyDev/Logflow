@@ -1,6 +1,10 @@
 # Logflow
 Logflow is a lightweight software to globally collect and analyse logs. Storing logs is called "ingestion" and Logflow has 3 ingestion modes: HTTP, Websockets and normal TCP-Sockets. The logs are stored in a database and can be queried using SQL or our API. Logs can also be viewed in the web interface.
 
+- [Authorization](#authorization)
+- [Ingestion](#ingestion)
+- [Application Arguments](#starting-the-application)
+
 ## Authorization
 When the web interface is first setup, the default user and password is `admin`. This can be changed after logging in. Ingesting requires a token. This token can be generated in the web interface. The token can be passed in the header `Authorization` for HTTP and Websockets. For TCP-Sockets, the token is passed as the first line of the message.
 ### Local token
@@ -38,7 +42,7 @@ The Websockets ingestion is similar to the HTTP ingestion. The only difference i
 ```
 The fields `timestamp`, `level`, `source` and `context` are required. The other fields are optional.
 ### TCP-Sockets
-The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, it supports SSL and plain (see [Command Line Arguments](#commandLineArguments)). The first line of the message must be the token. The rest of the message must equal the following JSON (example):
+The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, it supports SSL and plain (see [Application Arguments](#applicationArgs)). The first line of the message must be the token. The rest of the message must equal the following JSON (example):
 ```json
 {
   "timestamp": 1691572414,
@@ -47,8 +51,7 @@ The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, i
 }
 ```
 ---
-<!----><a id="commandLineArguments"></a>
-# Application Arguments
+# Starting the application
 
 ## Java Arguments
 | Argument              | Description                                |
