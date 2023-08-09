@@ -207,7 +207,7 @@ public class Logflow {
                     "tags VARCHAR(4096) NOT NULL, " +
                     "metadata VARCHAR(255), " +
                     "level VARCHAR(15) NOT NULL, " +
-                    "content TEXT NOT NULL, " +
+                    "content TEXT, " +
                     "PRIMARY KEY (id))")) {
                 statement.execute();
             }
