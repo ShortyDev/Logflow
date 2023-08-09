@@ -1,20 +1,29 @@
 package at.shorty.logflow;
 
+import at.shorty.logflow.auth.AuthHandler;
 import at.shorty.logflow.hikari.HikariConnectionPool;
+import at.shorty.logflow.ingest.IngestHandler;
+import at.shorty.logflow.ingest.data.LogAction;
+import at.shorty.logflow.ingest.packet.PacketHandler;
+import at.shorty.logflow.ingest.packet.WrappedPacket;
+import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
+import at.shorty.logflow.ingest.source.IngestSource;
 import at.shorty.logflow.util.LogflowArgsParser;
+import io.javalin.Javalin;
+import io.javalin.community.ssl.SSLPlugin;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.sql.SQLException;
-
-import static spark.Spark.*;
 
 @Slf4j
 public class Logflow {
@@ -28,9 +37,14 @@ public class Logflow {
         var socketUseSSL = commandLine.hasOption("socketUseSSL");
         log.info("Starting Logflow...");
 
+        var localAuthToken = System.getenv("LOGFLOW_LOCAL_AUTH_TOKEN");
         var jdbcUrl = System.getenv("LOGFLOW_HIKARI_JDBC_URL");
         var username = System.getenv("LOGFLOW_HIKARI_USERNAME");
         var password = System.getenv("LOGFLOW_HIKARI_PASSWORD");
+        if (localAuthToken == null) {
+            localAuthToken = "";
+            log.warn("No local auth token provided (env: LOGFLOW_LOCAL_AUTH_TOKEN)");
+        }
         if (jdbcUrl == null || username == null || password == null) {
             throw new RuntimeException("Failed to start Logflow: Missing environment variables, required: LOGFLOW_HIKARI_JDBC_URL, LOGFLOW_HIKARI_USERNAME, LOGFLOW_HIKARI_PASSWORD");
         }
@@ -49,27 +63,84 @@ public class Logflow {
             log.info("Hikari connection test successful");
         }
 
+        var authHandler = new AuthHandler(localAuthToken, connectionPool);
+        var logAction = new LogAction(connectionPool);
+        var packetHandler = new PacketHandler();
+
         var sslKeystorePath = System.getProperty("javax.net.ssl.keyStore");
         var sslKeystorePassword = System.getProperty("javax.net.ssl.keyStorePassword");
         if (!noWebServer) {
             log.info("Initializing web server...");
             var isSSL = false;
+            SSLPlugin sslPlugin;
             if (sslKeystorePath == null || sslKeystorePassword == null || !webUseSSL) {
+                sslPlugin = null;
                 var message = !webUseSSL ? "Start Logflow with -webUseSSL to enable" : "Make sure to provide javax.net.ssl.keyStore and javax.net.ssl.keyStorePassword system properties";
                 log.warn("Not using SSL for web server ({})", message);
             } else {
                 log.info("Using SSL for web server");
                 isSSL = true;
-                secure(sslKeystorePath, sslKeystorePassword, null, null);
+                sslPlugin = new SSLPlugin(conf -> conf.keystoreFromPath(sslKeystorePath, sslKeystorePassword));
             }
-            var sparkPort = System.getenv("LOGFLOW_SPARK_PORT");
-            if (sparkPort == null) {
-                sparkPort = isSSL ? "2096" : "2086";
+            var javalinPort = System.getenv("LOGFLOW_WEB_PORT");
+            if (javalinPort == null) {
+                javalinPort = isSSL ? "2096" : "2086";
             }
-            log.info("Starting web server on port " + sparkPort + (isSSL ? " (SSL)" : "") + "...");
-            port(Integer.parseInt(sparkPort));
-            // TODO: Implement web server
-            get("/", (req, res) -> "Hello World!");
+            log.info("Starting web server on port " + javalinPort + (isSSL ? " (SSL)" : "") + "...");
+            Javalin.create(javalinConfig -> {
+                        if (sslPlugin != null) {
+                            javalinConfig.plugins.register(sslPlugin);
+                        }
+                    })
+                    .ws("/ws", ws -> {
+                        ws.onConnect(ctx -> {
+                            var token = ctx.header("Authorization");
+                            if (token == null) {
+                                log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
+                                ctx.session.close();
+                                return;
+                            }
+                            if (!authHandler.authenticate(token)) {
+                                OutPacketAuthResponse outPacketAuthResponse = new OutPacketAuthResponse();
+                                outPacketAuthResponse.setSuccess(false);
+                                WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
+                                String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                                ctx.send(json);
+                                ctx.session.close();
+                                log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
+                                return;
+                            }
+                            InetAddress address = InetAddress.getByName(ctx.host());
+                            PipedOutputStream pipedOutputStream = new PipedOutputStream();
+                            PipedInputStream pipedInputStream = new PipedInputStream(pipedOutputStream);
+                            OutputStream outputStream = new OutputStream() {
+                                @Override
+                                public void write(int b) {
+                                    ctx.send(b);
+                                }
+                            };
+                            ws.onMessage(msgCtx -> {
+                                try {
+                                    pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
+                                } catch (IOException e) {
+                                    log.warn("Failed to write to piped output stream", e);
+                                }
+                            });
+                            log.info("Successfully authenticated websocket connection from {}", ctx.host());
+                            IngestSource ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
+                                try {
+                                    pipedInputStream.close();
+                                    pipedOutputStream.close();
+                                    ctx.closeSession();
+                                } catch (IOException e) {
+                                    log.warn("Failed to close piped streams and wsContext", e);
+                                }
+                                return null;
+                            }, IngestSource.Type.WEBSOCKET);
+                            new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
+                        });
+                    })
+                    .start(Integer.parseInt(javalinPort));
         }
 
         if (!noSocketServer) {
@@ -90,26 +161,13 @@ public class Logflow {
                 log.info("Starting socket server on port " + socketPort + (isSSL ? " (SSL)" : "") + "...");
                 var finalIsSSL = isSSL;
                 var finalSocketPort = socketPort;
-                class LogflowSocketHandler {
-                    public void init(Socket socket) {
-                        new Thread(() -> {
-                            try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
-                                String line;
-                                while ((line = bufferedReader.readLine()) != null) {
-                                    // TODO: Implement socket server
-                                }
-                            } catch (IOException e) {
-                                log.warn("Unexpected exception while reading socket", e);
-                            }
-                        }).start();
-                    }
-                }
                 if (finalIsSSL) {
                     var sslServerSocketFactory = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
                     try (var sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(Integer.parseInt(finalSocketPort))) {
                         log.info("SSL socket server started");
                         while (true) {
-                            new LogflowSocketHandler().init(sslServerSocket.accept());
+                            Socket socket = sslServerSocket.accept();
+                            new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
                         }
                     } catch (IOException e) {
                         log.error("Failed to start SSL socket server", e);
@@ -118,7 +176,8 @@ public class Logflow {
                     try (var serverSocket = new ServerSocket(Integer.parseInt(finalSocketPort))) {
                         log.info("Socket server started");
                         while (true) {
-                            new LogflowSocketHandler().init(serverSocket.accept());
+                            Socket socket = serverSocket.accept();
+                            new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
                         }
                     } catch (IOException e) {
                         log.error("Failed to start socket server", e);
