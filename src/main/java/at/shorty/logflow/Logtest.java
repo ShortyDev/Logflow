@@ -11,7 +11,7 @@ import java.net.Socket;
 import java.util.Base64;
 import java.util.Date;
 
-public class test {
+public class Logtest {
 
     public static void main(String[] args) throws InterruptedException {
         try {
@@ -31,7 +31,7 @@ public class test {
             inPacketLog.setSource("testSource");
             inPacketLog.setTimestamp(new Date());
             inPacketLog.setLevel(Level.INFO);
-            inPacketLog.setContext("testContext");
+            inPacketLog.setContext(null);
             inPacketLog.setTags(new String[]{"testTag1", "testTag2"});
             inPacketLog.setMetadata("no meta");
             inPacketLog.setSourceIp("123");
@@ -42,7 +42,6 @@ public class test {
             System.out.println(objectMapper.writeValueAsString(wrappedPacket));
             Thread.sleep(1000);
             socket.close();
-
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

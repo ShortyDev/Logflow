@@ -9,9 +9,11 @@ import at.shorty.logflow.ingest.packet.WrappedPacket;
 import at.shorty.logflow.ingest.packet.impl.InPacketAuth;
 import at.shorty.logflow.ingest.packet.impl.InPacketLog;
 import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
+import at.shorty.logflow.ingest.packet.impl.OutPacketLogResponse;
 import at.shorty.logflow.ingest.source.IngestSource;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -54,11 +56,18 @@ public class IngestHandler {
                             Packet packet = packetHandler.handleJsonInput(line);
                             if (packet instanceof InPacketLog inPacketLog) {
                                 inPacketLog.setSourceIp(ingestSource.address().getHostAddress());
-                                System.out.println(inPacketLog.getContent());
                                 if (inPacketLog.getContent() != null) {
                                     inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
                                 }
-                                System.out.println(inPacketLog.getContent());
+                                OutPacketLogResponse outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
+                                WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
+                                String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                                ingestSource.outputStream().write((json + "\n").getBytes());
+                                if (!outPacketLogResponse.isSuccess()) {
+                                    log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
+                                    continue;
+                                }
+                                System.out.println(inPacketLog.getContext());
                                 logAction.log(inPacketLog);
                                 log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
                             } else {
@@ -76,6 +85,28 @@ public class IngestHandler {
             }
             log.info("{} connection closed ({})", ingestSource.type().friendlyName, ingestSource.address().getHostAddress());
         }).start();
+    }
+
+    @NotNull
+    private static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
+        OutPacketLogResponse outPacketLogResponse = new OutPacketLogResponse();
+        if (inPacketLog.getSource() == null || inPacketLog.getSource().isEmpty()) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Source is null or empty");
+        } else if (inPacketLog.getTimestamp() == null) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Timestamp is null");
+        } else if (inPacketLog.getLevel() == null) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Level is null");
+        } else if (inPacketLog.getContext() == null || inPacketLog.getContext().isEmpty()) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Context is null or empty");
+        } else {
+            outPacketLogResponse.setSuccess(true);
+            outPacketLogResponse.setMessage("OK");
+        }
+        return outPacketLogResponse;
     }
 
 }
