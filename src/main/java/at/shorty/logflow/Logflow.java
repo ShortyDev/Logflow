@@ -12,6 +12,7 @@ import io.javalin.Javalin;
 import io.javalin.community.ssl.SSLPlugin;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
+import org.jetbrains.annotations.NotNull;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
@@ -114,6 +115,11 @@ public class Logflow {
                             @Override
                             public void write(int b) {
                                 ctx.send(b);
+                            }
+
+                            @Override
+                            public void write(byte @NotNull [] b) {
+                                ctx.send(new String(b));
                             }
                         };
                         ws.onMessage(msgCtx -> {
