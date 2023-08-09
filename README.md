@@ -16,6 +16,8 @@ For the available log levels, see [Log Levels](#log-levels).
 
 ## Authorization
 
+**Auth tokens cannot be longer than 1024 characters.**
+
 When the web interface is first setup, the default user and password is `admin`. This can be changed after logging in.
 Ingesting requires a token. This token can be generated in the web interface. The token can be passed in the
 header `Authorization` for HTTP and Websockets. For TCP-Sockets, the token is passed as the first line of the message.
@@ -32,6 +34,14 @@ with each restart.
 Please note that HTTP and Websockets use the same web server, so any SSL changes will affect both. TCP-Sockets is a
 separate server and can be configured separately. Also, TCP-Sockets do not support PEM-certificates - only Java
 KeyStores.
+
+After every successful ingestion, the server will respond with the following JSON:
+```json
+{
+  "success": true,
+  "message": "OK"
+}
+```
 
 ### HTTP
 

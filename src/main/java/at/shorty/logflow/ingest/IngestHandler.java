@@ -114,6 +114,9 @@ public class IngestHandler {
         } else if (inPacketLog.getContext().length() > 255) {
             outPacketLogResponse.setSuccess(false);
             outPacketLogResponse.setMessage("Context is too long (max. 255 characters)");
+        } else if (!inPacketLog.getContext().matches("^[a-zA-Z0-9_]*$")) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Context contains invalid characters (only a-z, A-Z, 0-9 and _ are allowed)");
         } else {
             outPacketLogResponse.setSuccess(true);
             outPacketLogResponse.setMessage("OK");
