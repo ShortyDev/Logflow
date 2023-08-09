@@ -198,6 +198,13 @@ public class Logflow {
                 }
             }, "Logflow Socket Server").start();
         }
+
+        log.info("Adding shutdown hook...");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutting down Logflow...");
+            connectionPool.close();
+            log.info("Logflow shutdown");
+        }));
         log.info("Logflow started");
     }
 
