@@ -1,6 +1,7 @@
 package at.shorty.logflow.ingest;
 
 import at.shorty.logflow.auth.AuthHandler;
+import at.shorty.logflow.auth.TokenData;
 import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.PacketHandler;
 import at.shorty.logflow.ingest.packet.impl.InPacketAuth;
@@ -24,6 +25,7 @@ public class IngestHandler {
 
     public IngestHandler(IngestSource ingestSource, PacketHandler packetHandler, AuthHandler authHandler, LogAction logAction, boolean preAuth) {
         new Thread(() -> {
+            String authToken = null;
             try (var bufferedReader = new BufferedReader(new InputStreamReader(ingestSource.inputStream()))) {
                 String line;
                 var authenticated = preAuth;
@@ -32,6 +34,7 @@ public class IngestHandler {
                         try {
                             InPacketAuth inPacketAuth = packetHandler.handleJsonInput(line, InPacketAuth.class);
                             authenticated = authHandler.authenticate(inPacketAuth.getToken());
+                            authToken = inPacketAuth.getToken();
                             var outPacketAuthResponse = new OutPacketAuthResponse();
                             outPacketAuthResponse.setSuccess(authenticated);
                             var json = packetHandler.getObjectMapper().writeValueAsString(outPacketAuthResponse);
@@ -48,6 +51,10 @@ public class IngestHandler {
                         }
                     } else {
                         try {
+                            if (authToken == null) {
+                                log.warn("Failed to log from {} -> Reason: No auth token", ingestSource.address().getHostAddress());
+                                continue;
+                            }
                             InPacketLog inPacketLog = packetHandler.handleJsonInput(line, InPacketLog.class);
                             inPacketLog.setSourceIp(ingestSource.address().getHostAddress());
                             if (inPacketLog.getContent() != null) {
@@ -62,6 +69,11 @@ public class IngestHandler {
                             if (!outPacketLogResponse.isSuccess()) {
                                 log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
                                 continue;
+                            }
+                            TokenData tokenData = authHandler.getTokenDataCache().get(authToken, 5000);
+                            if (!tokenData.isAllowedToPush(inPacketLog.getContext())) {
+                                log.warn("Failed to log from {} -> Reason: No permissions - Context not allowed", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp() + " (token affected: " + tokenData.uuid() + ")");
+                                return;
                             }
                             logAction.log(inPacketLog);
                             log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());

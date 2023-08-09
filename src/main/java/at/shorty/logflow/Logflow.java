@@ -1,6 +1,7 @@
 package at.shorty.logflow;
 
 import at.shorty.logflow.auth.AuthHandler;
+import at.shorty.logflow.auth.TokenData;
 import at.shorty.logflow.hikari.HikariConnectionPool;
 import at.shorty.logflow.ingest.IngestHandler;
 import at.shorty.logflow.ingest.data.LogAction;
@@ -242,6 +243,11 @@ public class Logflow {
                         log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
                         return;
                     }
+                    TokenData tokenData = authHandler.getTokenDataCache().get(authToken, 5000);
+                    if (!tokenData.isAllowedToPush(inPacketLog.getContext())) {
+                        log.warn("Failed to log from {} -> Reason: No permissions - Context not allowed", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp() + " (token affected: " + tokenData.uuid() + ")");
+                        return;
+                    }
                     logAction.log(inPacketLog);
                     log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
                 } catch (JsonProcessingException e) {
@@ -267,6 +273,27 @@ public class Logflow {
                     "metadata VARCHAR(255), " +
                     "level VARCHAR(15) NOT NULL, " +
                     "content TEXT, " +
+                    "PRIMARY KEY (id))")) {
+                statement.execute();
+            }
+            try (var statement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS users (" +
+                    "id INT NOT NULL AUTO_INCREMENT, " +
+                    "name VARCHAR(255) NOT NULL, " +
+                    "password VARCHAR(255) NOT NULL, " +
+                    "permissions INT NOT NULL, " +
+                    "read_contexts TEXT NOT NULL, " +
+                    "push_contexts TEXT NOT NULL, " +
+                    "deactivated BOOLEAN NOT NULL, " +
+                    "PRIMARY KEY (id))")) {
+                statement.execute();
+            }
+            try (var statement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS tokens (" +
+                    "id INT NOT NULL AUTO_INCREMENT, " +
+                    "user_id INT NOT NULL, " +
+                    "uuid VARCHAR(36) NOT NULL, " +
+                    "token VARCHAR(1024) NOT NULL, " +
+                    "read_contexts TEXT NOT NULL, " +
+                    "push_contexts TEXT NOT NULL, " +
                     "PRIMARY KEY (id))")) {
                 statement.execute();
             }
