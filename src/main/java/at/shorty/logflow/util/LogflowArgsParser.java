@@ -11,7 +11,9 @@ public class LogflowArgsParser {
 
         var options = new Options();
         options.addOption("noWebServer", false, "Do not start web server");
-        options.addOption("noSocketServer", false, "Do not start socket server");
+        options.addOption("noWsIngest", false, "Do not use web sockets for ingest");
+        options.addOption("noHTTPIngest", false, "Do not use HTTP for ingest");
+        options.addOption("noSocketIngest", false, "Do not start socket server for ingest");
         options.addOption("webUseSSL", false, "Use SSL for web server");
         options.addOption("socketUseSSL", false, "Use SSL for socket server");
 

@@ -2,9 +2,7 @@ package at.shorty.logflow.ingest;
 
 import at.shorty.logflow.auth.AuthHandler;
 import at.shorty.logflow.ingest.data.LogAction;
-import at.shorty.logflow.ingest.packet.Packet;
 import at.shorty.logflow.ingest.packet.PacketHandler;
-import at.shorty.logflow.ingest.packet.PacketInfo;
 import at.shorty.logflow.ingest.packet.impl.InPacketAuth;
 import at.shorty.logflow.ingest.packet.impl.InPacketLog;
 import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
@@ -32,49 +30,41 @@ public class IngestHandler {
                 while ((line = bufferedReader.readLine()) != null) {
                     if (!authenticated) {
                         try {
-                            Packet packet = packetHandler.handleJsonInput(line);
-                            if (packet instanceof InPacketAuth inPacketAuth) {
-                                authenticated = authHandler.authenticate(inPacketAuth.getToken());
-                                var outPacketAuthResponse = new OutPacketAuthResponse();
-                                outPacketAuthResponse.setSuccess(authenticated);
-                                var wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
-                                var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
-                                ingestSource.outputStream().write((json + "\n").getBytes());
-                                if (authenticated) {
-                                    log.info("Successfully authenticated {} connection from {}", ingestSource.type().friendlyName.toLowerCase(), ingestSource.address().getHostAddress());
-                                } else {
-                                    log.warn("Failed to authenticate {} connection from {}", ingestSource.type().friendlyName.toLowerCase(), ingestSource.address().getHostAddress());
-                                }
+                            InPacketAuth inPacketAuth = packetHandler.handleJsonInput(line, InPacketAuth.class);
+                            authenticated = authHandler.authenticate(inPacketAuth.getToken());
+                            var outPacketAuthResponse = new OutPacketAuthResponse();
+                            outPacketAuthResponse.setSuccess(authenticated);
+                            var json = packetHandler.getObjectMapper().writeValueAsString(outPacketAuthResponse);
+                            ingestSource.outputStream().write((json + "\n").getBytes());
+                            if (authenticated) {
+                                log.info("Successfully authenticated {} connection from {}", ingestSource.type().friendlyName.toLowerCase(), ingestSource.address().getHostAddress());
                             } else {
-                                log.warn("Invalid packet received at authentication stage ({}) -> id {}", ingestSource.address().getHostAddress(), packet.getClass().getAnnotation(PacketInfo.class).id());
+                                log.warn("Failed to authenticate {} connection from {}", ingestSource.type().friendlyName.toLowerCase(), ingestSource.address().getHostAddress());
+                                ingestSource.close().apply(null);
                             }
                         } catch (JsonProcessingException e) {
                             log.warn("Invalid packet received at authentication stage ({}) -> {}", ingestSource.address().getHostAddress(), line);
+                            ingestSource.close().apply(null);
                         }
                     } else {
                         try {
-                            var packet = packetHandler.handleJsonInput(line);
-                            if (packet instanceof InPacketLog inPacketLog) {
-                                inPacketLog.setSourceIp(ingestSource.address().getHostAddress());
-                                if (inPacketLog.getContent() != null) {
-                                    inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
-                                }
-                                if (inPacketLog.getTags() == null) {
-                                    inPacketLog.setTags(new String[0]);
-                                }
-                                var outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
-                                var wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
-                                var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
-                                ingestSource.outputStream().write((json + "\n").getBytes());
-                                if (!outPacketLogResponse.isSuccess()) {
-                                    log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
-                                    continue;
-                                }
-                                logAction.log(inPacketLog);
-                                log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
-                            } else {
-                                log.warn("Invalid packet received ({}) -> id {}", ingestSource.address().getHostAddress(), packet.getClass().getAnnotation(PacketInfo.class).id());
+                            InPacketLog inPacketLog = packetHandler.handleJsonInput(line, InPacketLog.class);
+                            inPacketLog.setSourceIp(ingestSource.address().getHostAddress());
+                            if (inPacketLog.getContent() != null) {
+                                inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
                             }
+                            if (inPacketLog.getTags() == null) {
+                                inPacketLog.setTags(new String[0]);
+                            }
+                            var outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
+                            var json = packetHandler.getObjectMapper().writeValueAsString(outPacketLogResponse);
+                            ingestSource.outputStream().write((json + "\n").getBytes());
+                            if (!outPacketLogResponse.isSuccess()) {
+                                log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
+                                continue;
+                            }
+                            logAction.log(inPacketLog);
+                            log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
                         } catch (JsonProcessingException e) {
                             log.warn("Invalid packet received ({}) -> {}", ingestSource.address().getHostAddress(), line);
                         } catch (SQLException e) {
@@ -124,7 +114,7 @@ public class IngestHandler {
         } else if (inPacketLog.getContext().length() > 255) {
             outPacketLogResponse.setSuccess(false);
             outPacketLogResponse.setMessage("Context is too long (max. 255 characters)");
-        }  else {
+        } else {
             outPacketLogResponse.setSuccess(true);
             outPacketLogResponse.setMessage("OK");
         }

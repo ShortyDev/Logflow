@@ -10,11 +10,12 @@ public class HikariConnectionPool {
 
     private final HikariDataSource dataSource;
 
-    public HikariConnectionPool(String jdbcUrl, String username, String password) {
+    public HikariConnectionPool(String jdbcUrl, String username, String password, Integer poolSizeInt) {
         dataSource = new HikariDataSource();
         dataSource.setJdbcUrl(jdbcUrl);
         dataSource.setUsername(username);
         dataSource.setPassword(password);
+        dataSource.setMaximumPoolSize(poolSizeInt);
     }
 
     public Connection getConnection() {
