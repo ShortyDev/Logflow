@@ -11,7 +11,6 @@ public class LogflowArgsParser {
         CommandLineParser parser = new DefaultParser();
 
         Options options = new Options();
-        options.addOption("testHikariConnection", false, "Test Hikari connection at startup");
         options.addOption("noWebServer", false, "Do not start web server");
         options.addOption("noSocketServer", false, "Do not start socket server");
         options.addOption("webUseSSL", false, "Use SSL for web server");

@@ -23,14 +23,12 @@ import java.io.PipedOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.sql.SQLException;
 
 @Slf4j
 public class Logflow {
 
     public void init(String[] args) {
         CommandLine commandLine = LogflowArgsParser.parse(args);
-        var testHikariConnection = commandLine.hasOption("testHikariConnection");
         var noWebServer = commandLine.hasOption("noWebServer");
         var noSocketServer = commandLine.hasOption("noSocketServer");
         var webUseSSL = commandLine.hasOption("webUseSSL");
@@ -51,17 +49,6 @@ public class Logflow {
         log.info("Initializing Hikari pool...");
         var connectionPool = new HikariConnectionPool(jdbcUrl, username, password);
         log.info("Hikari pool initialized");
-        if (testHikariConnection) {
-            log.info("Testing Hikari connection... (as requested by command line argument)");
-            try (var connection = connectionPool.getConnection()) {
-                if (connection == null) {
-                    throw new RuntimeException("Failed to get connection from pool");
-                }
-            } catch (SQLException exception) {
-                throw new RuntimeException("Failed to get connection from pool", exception);
-            }
-            log.info("Hikari connection test successful");
-        }
 
         var authHandler = new AuthHandler(localAuthToken, connectionPool);
         var logAction = new LogAction(connectionPool);
