@@ -23,6 +23,8 @@ import java.io.PipedOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 
 @Slf4j
 public class Logflow {
@@ -192,10 +194,30 @@ public class Logflow {
         }));
         log.info("Logflow started");
         
-        setupDatabase();
+        setupDatabase(connectionPool);
     }
 
-    private void setupDatabase() {
+    private void setupDatabase(HikariConnectionPool connectionPool) {
+        log.info("Setting up database...");
+        try (var connection = connectionPool.getConnection()) {
+            log.info("Creating tables...");
+            try (PreparedStatement statement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS logs (" +
+                    "id INT NOT NULL AUTO_INCREMENT, " +
+                    "time_stamp TIMESTAMP NOT NULL, " +
+                    "source VARCHAR(255) NOT NULL, " +
+                    "source_ip VARCHAR(46) NOT NULL, " +
+                    "context VARCHAR(255) NOT NULL, " +
+                    "tags VARCHAR(4096) NOT NULL, " +
+                    "metadata VARCHAR(255), " +
+                    "level VARCHAR(15) NOT NULL, " +
+                    "content TEXT NOT NULL, " +
+                    "PRIMARY KEY (id))")) {
+                statement.execute();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+        log.info("Database setup complete");
     }
 
 }

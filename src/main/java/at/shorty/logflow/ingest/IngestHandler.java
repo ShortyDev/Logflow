@@ -19,6 +19,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.SocketException;
+import java.sql.SQLException;
 import java.util.Base64;
 
 @Slf4j
@@ -59,6 +60,9 @@ public class IngestHandler {
                                 if (inPacketLog.getContent() != null) {
                                     inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
                                 }
+                                if (inPacketLog.getTags() == null) {
+                                    inPacketLog.setTags(new String[0]);
+                                }
                                 OutPacketLogResponse outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
                                 WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
                                 String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
@@ -74,6 +78,8 @@ public class IngestHandler {
                             }
                         } catch (JsonProcessingException e) {
                             log.warn("Invalid packet received ({}) -> {}", ingestSource.address().getHostAddress(), line);
+                        } catch (SQLException e) {
+                            log.warn("Failed to save log from {} -> {}", ingestSource.address().getHostAddress(), e.getMessage());
                         }
                     }
                 }
@@ -89,6 +95,18 @@ public class IngestHandler {
     @NotNull
     private static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
         OutPacketLogResponse outPacketLogResponse = new OutPacketLogResponse();
+        for (String tag : inPacketLog.getTags()) {
+            if (!tag.matches("^[a-zA-Z0-9_]*$")) {
+                outPacketLogResponse.setSuccess(false);
+                outPacketLogResponse.setMessage("Tag " + tag + " contains invalid characters (only a-z, A-Z, 0-9 and _ are allowed)");
+                return outPacketLogResponse;
+            }
+        }
+        if (String.join(",", inPacketLog.getTags()).length() > 4096) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Tags are too long (max. 4096 characters in total)");
+            return outPacketLogResponse;
+        }
         if (inPacketLog.getSource() == null || inPacketLog.getSource().isEmpty()) {
             outPacketLogResponse.setSuccess(false);
             outPacketLogResponse.setMessage("Source is null or empty");
@@ -101,7 +119,13 @@ public class IngestHandler {
         } else if (inPacketLog.getContext() == null || inPacketLog.getContext().isEmpty()) {
             outPacketLogResponse.setSuccess(false);
             outPacketLogResponse.setMessage("Context is null or empty");
-        } else {
+        } else if (inPacketLog.getSource().length() > 255) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Source is too long (max. 255 characters)");
+        } else if (inPacketLog.getContext().length() > 255) {
+            outPacketLogResponse.setSuccess(false);
+            outPacketLogResponse.setMessage("Context is too long (max. 255 characters)");
+        }  else {
             outPacketLogResponse.setSuccess(true);
             outPacketLogResponse.setMessage("OK");
         }
