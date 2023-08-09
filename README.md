@@ -3,12 +3,12 @@ Logflow is a lightweight software to globally collect and analyse logs. Storing 
 
 - [Authorization](#authorization)
 - [Ingestion](#ingestion)
-- [Application Arguments](#starting-the-application)
+- [Starting the application](#starting-the-application)
 
 ## Authorization
 When the web interface is first setup, the default user and password is `admin`. This can be changed after logging in. Ingesting requires a token. This token can be generated in the web interface. The token can be passed in the header `Authorization` for HTTP and Websockets. For TCP-Sockets, the token is passed as the first line of the message.
 ### Local token
-Logflow can solely run with a local token. This token is passed with the environment variable "LOGFLOW_LOCAL_AUTH_TOKEN". If you don't provide a token, a random one will be generated on each start and printed to the console. If you use a random token, be aware that it will change with each restart.
+Logflow can solely run with a local token. This token is passed with the [environment variable](#environment-variables) "LOGFLOW_LOCAL_AUTH_TOKEN". If you don't provide a token, a random one will be generated on each start and printed to the console. If you use a random token, be aware that it will change with each restart.
 
 ## Ingestion
 Please note that HTTP and Websockets use the same web server, so any SSL changes will affect both. TCP-Sockets is a separate server and can be configured separately. Also, TCP-Sockets do not support PEM-certificates - only Java KeyStores.
