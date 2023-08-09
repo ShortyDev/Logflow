@@ -105,54 +105,52 @@ public class Logflow {
                             javalinConfig.plugins.register(sslPlugin);
                         }
                     })
-                    .ws("/ws", ws -> {
-                        ws.onConnect(ctx -> {
-                            var token = ctx.header("Authorization");
-                            if (token == null) {
-                                log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
-                                ctx.session.close();
-                                return;
+                    .ws("/ws", ws -> ws.onConnect(ctx -> {
+                        var token = ctx.header("Authorization");
+                        if (token == null) {
+                            log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
+                            ctx.session.close();
+                            return;
+                        }
+                        if (!authHandler.authenticate(token)) {
+                            OutPacketAuthResponse outPacketAuthResponse = new OutPacketAuthResponse();
+                            outPacketAuthResponse.setSuccess(false);
+                            WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
+                            String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                            ctx.send(json);
+                            ctx.session.close();
+                            log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
+                            return;
+                        }
+                        InetAddress address = InetAddress.getByName(ctx.host());
+                        PipedOutputStream pipedOutputStream = new PipedOutputStream();
+                        PipedInputStream pipedInputStream = new PipedInputStream(pipedOutputStream);
+                        OutputStream outputStream = new OutputStream() {
+                            @Override
+                            public void write(int b) {
+                                ctx.send(b);
                             }
-                            if (!authHandler.authenticate(token)) {
-                                OutPacketAuthResponse outPacketAuthResponse = new OutPacketAuthResponse();
-                                outPacketAuthResponse.setSuccess(false);
-                                WrappedPacket wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
-                                String json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
-                                ctx.send(json);
-                                ctx.session.close();
-                                log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
-                                return;
+                        };
+                        ws.onMessage(msgCtx -> {
+                            try {
+                                pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
+                            } catch (IOException e) {
+                                log.warn("Failed to write to piped output stream", e);
                             }
-                            InetAddress address = InetAddress.getByName(ctx.host());
-                            PipedOutputStream pipedOutputStream = new PipedOutputStream();
-                            PipedInputStream pipedInputStream = new PipedInputStream(pipedOutputStream);
-                            OutputStream outputStream = new OutputStream() {
-                                @Override
-                                public void write(int b) {
-                                    ctx.send(b);
-                                }
-                            };
-                            ws.onMessage(msgCtx -> {
-                                try {
-                                    pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
-                                } catch (IOException e) {
-                                    log.warn("Failed to write to piped output stream", e);
-                                }
-                            });
-                            log.info("Successfully authenticated websocket connection from {}", ctx.host());
-                            IngestSource ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
-                                try {
-                                    pipedInputStream.close();
-                                    pipedOutputStream.close();
-                                    ctx.closeSession();
-                                } catch (IOException e) {
-                                    log.warn("Failed to close piped streams and wsContext", e);
-                                }
-                                return null;
-                            }, IngestSource.Type.WEBSOCKET);
-                            new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
                         });
-                    })
+                        log.info("Successfully authenticated websocket connection from {}", ctx.host());
+                        IngestSource ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
+                            try {
+                                pipedInputStream.close();
+                                pipedOutputStream.close();
+                                ctx.closeSession();
+                            } catch (IOException e) {
+                                log.warn("Failed to close piped streams and wsContext", e);
+                            }
+                            return null;
+                        }, IngestSource.Type.WEBSOCKET);
+                        new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
+                    }))
                     .start(Integer.parseInt(javalinPort));
         }
 
