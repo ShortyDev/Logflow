@@ -53,7 +53,6 @@ public class Logflow {
         log.info("Hikari pool initialized");
 
         var authHandler = new AuthHandler(localAuthToken, connectionPool);
-        var logAction = new LogAction(connectionPool);
         var packetHandler = new PacketHandler();
 
         var sslKeystorePath = System.getProperty("javax.net.ssl.keyStore");
@@ -138,6 +137,7 @@ public class Logflow {
                             }
                             return null;
                         }, IngestSource.Type.WEBSOCKET);
+                        var logAction = new LogAction(connectionPool);
                         new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
                     }))
                     .start(Integer.parseInt(javalinPort));
@@ -161,6 +161,7 @@ public class Logflow {
                 log.info("Starting socket server on port " + socketPort + (isSSL ? " (SSL)" : "") + "...");
                 var finalIsSSL = isSSL;
                 var finalSocketPort = socketPort;
+                var logAction = new LogAction(connectionPool);
                 if (finalIsSSL) {
                     var sslServerSocketFactory = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
                     try (var sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(Integer.parseInt(finalSocketPort))) {
