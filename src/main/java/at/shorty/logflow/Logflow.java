@@ -191,6 +191,11 @@ public class Logflow {
             log.info("Logflow shutdown");
         }));
         log.info("Logflow started");
+        
+        setupDatabase();
+    }
+
+    private void setupDatabase() {
     }
 
 }
