@@ -67,7 +67,6 @@ public class IngestHandler {
                                     log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
                                     continue;
                                 }
-                                System.out.println(inPacketLog.getContext());
                                 logAction.log(inPacketLog);
                                 log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
                             } else {
