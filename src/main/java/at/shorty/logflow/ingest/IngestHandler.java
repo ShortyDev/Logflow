@@ -92,7 +92,7 @@ public class IngestHandler {
     }
 
     @NotNull
-    private static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
+    public static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
         var outPacketLogResponse = new OutPacketLogResponse();
         for (String tag : inPacketLog.getTags()) {
             if (!tag.matches("^[a-zA-Z0-9_]*$")) {

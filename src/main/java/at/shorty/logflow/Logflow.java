@@ -5,9 +5,12 @@ import at.shorty.logflow.hikari.HikariConnectionPool;
 import at.shorty.logflow.ingest.IngestHandler;
 import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.PacketHandler;
+import at.shorty.logflow.ingest.packet.PacketInfo;
+import at.shorty.logflow.ingest.packet.impl.InPacketLog;
 import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
 import at.shorty.logflow.ingest.source.IngestSource;
 import at.shorty.logflow.util.LogflowArgsParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.javalin.Javalin;
 import io.javalin.community.ssl.SSLPlugin;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +26,7 @@ import java.io.PipedOutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.sql.SQLException;
+import java.util.Base64;
 
 @Slf4j
 public class Logflow {
@@ -86,64 +90,7 @@ public class Logflow {
                 javalinPort = isSSL ? "2096" : "2086";
             }
             log.info("Starting web server on port " + javalinPort + (isSSL ? " (SSL)" : "") + "...");
-            Javalin.create(javalinConfig -> {
-                        if (sslPlugin != null) {
-                            javalinConfig.plugins.register(sslPlugin);
-                        }
-                    })
-                    .ws("/ws", ws -> ws.onConnect(ctx -> {
-                        var token = ctx.header("Authorization");
-                        if (token == null) {
-                            log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
-                            ctx.session.close();
-                            return;
-                        }
-                        if (!authHandler.authenticate(token)) {
-                            var outPacketAuthResponse = new OutPacketAuthResponse();
-                            outPacketAuthResponse.setSuccess(false);
-                            var wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
-                            var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
-                            ctx.send(json);
-                            ctx.session.close();
-                            log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
-                            return;
-                        }
-                        var address = InetAddress.getByName(ctx.host());
-                        var pipedOutputStream = new PipedOutputStream();
-                        var pipedInputStream = new PipedInputStream(pipedOutputStream);
-                        var outputStream = new OutputStream() {
-                            @Override
-                            public void write(int b) {
-                                ctx.send(b);
-                            }
-
-                            @Override
-                            public void write(byte @NotNull [] b) {
-                                ctx.send(new String(b));
-                            }
-                        };
-                        ws.onMessage(msgCtx -> {
-                            try {
-                                pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
-                            } catch (IOException e) {
-                                log.warn("Failed to write to piped output stream", e);
-                            }
-                        });
-                        log.info("Successfully authenticated websocket connection from {}", ctx.host());
-                        var ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
-                            try {
-                                pipedInputStream.close();
-                                pipedOutputStream.close();
-                                ctx.closeSession();
-                            } catch (IOException e) {
-                                log.warn("Failed to close piped streams and wsContext", e);
-                            }
-                            return null;
-                        }, IngestSource.Type.WEBSOCKET);
-                        var logAction = new LogAction(connectionPool);
-                        new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
-                    }))
-                    .start(Integer.parseInt(javalinPort));
+            startWebServer(sslPlugin, authHandler, packetHandler, connectionPool, Integer.parseInt(javalinPort));
         }
 
         if (!noSocketServer) {
@@ -198,6 +145,109 @@ public class Logflow {
         }));
         log.info("Logflow started");
         setupDatabase(connectionPool);
+    }
+
+    private void startWebServer(SSLPlugin sslPlugin, AuthHandler authHandler, PacketHandler packetHandler, HikariConnectionPool connectionPool, int javalinPort) {
+        Javalin.create(javalinConfig -> {
+                    if (sslPlugin != null) {
+                        javalinConfig.plugins.register(sslPlugin);
+                    }
+                })
+                .ws("/ws", ws -> ws.onConnect(ctx -> {
+                    var token = ctx.header("Authorization");
+                    if (token == null) {
+                        log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
+                        ctx.session.close();
+                        return;
+                    }
+                    if (!authHandler.authenticate(token)) {
+                        var outPacketAuthResponse = new OutPacketAuthResponse();
+                        outPacketAuthResponse.setSuccess(false);
+                        var wrappedPacket = packetHandler.handlePacket(outPacketAuthResponse);
+                        var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                        ctx.send(json);
+                        ctx.session.close();
+                        log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
+                        return;
+                    }
+                    var address = InetAddress.getByName(ctx.host());
+                    var pipedOutputStream = new PipedOutputStream();
+                    var pipedInputStream = new PipedInputStream(pipedOutputStream);
+                    var outputStream = new OutputStream() {
+                        @Override
+                        public void write(int b) {
+                            ctx.send(b);
+                        }
+
+                        @Override
+                        public void write(byte @NotNull [] b) {
+                            ctx.send(new String(b));
+                        }
+                    };
+                    ws.onMessage(msgCtx -> {
+                        try {
+                            pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
+                        } catch (IOException e) {
+                            log.warn("Failed to write to piped output stream", e);
+                        }
+                    });
+                    log.info("Successfully authenticated websocket connection from {}", ctx.host());
+                    var ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
+                        try {
+                            pipedInputStream.close();
+                            pipedOutputStream.close();
+                            ctx.closeSession();
+                        } catch (IOException e) {
+                            log.warn("Failed to close piped streams and wsContext", e);
+                        }
+                        return null;
+                    }, IngestSource.Type.WEBSOCKET);
+                    var logAction = new LogAction(connectionPool);
+                    new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
+                }))
+                .post("/log", handler -> {
+                    String authToken = handler.req().getHeader("Authorization");
+                    if (authToken == null) {
+                        log.warn("Failed to authenticate HTTP request from {} (no auth token provided)", handler.req().getRemoteAddr());
+                        handler.status(401);
+                        return;
+                    }
+                    if (!authHandler.authenticate(authToken)) {
+                        log.warn("Failed to authenticate HTTP request from {} (invalid auth token)", handler.req().getRemoteAddr());
+                        handler.status(401);
+                        return;
+                    }
+                    var logAction = new LogAction(connectionPool);
+                    try {
+                        var packet = packetHandler.handleJsonInput(handler.body());
+                        if (packet instanceof InPacketLog inPacketLog) {
+                            inPacketLog.setSourceIp(handler.ip());
+                            if (inPacketLog.getContent() != null) {
+                                inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
+                            }
+                            if (inPacketLog.getTags() == null) {
+                                inPacketLog.setTags(new String[0]);
+                            }
+                            var outPacketLogResponse = IngestHandler.createOutPacketLogResponse(inPacketLog);
+                            var wrappedPacket = packetHandler.handlePacket(outPacketLogResponse);
+                            var json = packetHandler.getObjectMapper().writeValueAsString(wrappedPacket);
+                            handler.result(json);
+                            if (!outPacketLogResponse.isSuccess()) {
+                                log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
+                                return;
+                            }
+                            logAction.log(inPacketLog);
+                            log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
+                        } else {
+                            log.warn("Invalid packet received ({}) -> id {}", handler.ip(), packet.getClass().getAnnotation(PacketInfo.class).id());
+                        }
+                    } catch (JsonProcessingException e) {
+                        log.warn("Invalid packet received ({}) -> {}", handler.ip(), handler.body());
+                    } catch (SQLException e) {
+                        log.warn("Failed to save log from {} -> {}", handler.ip(), e.getMessage());
+                    }
+                })
+                .start(javalinPort);
     }
 
     private void setupDatabase(HikariConnectionPool connectionPool) {
