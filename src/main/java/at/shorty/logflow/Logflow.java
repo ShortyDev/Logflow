@@ -82,17 +82,17 @@ public class Logflow {
                     conf.insecure = false;
                 });
             }
-            var javalinPort = System.getenv("LOGFLOW_WEB_PORT");
-            if (javalinPort == null) {
-                javalinPort = isSSL ? "2096" : "2086";
+            var webPort = System.getenv("LOGFLOW_WEB_PORT");
+            if (webPort == null) {
+                webPort = isSSL ? "2096" : "2086";
             }
-            log.info("Starting web server on port " + javalinPort + (isSSL ? " (SSL)" : "") + "...");
+            log.info("Starting web server on port " + webPort + (isSSL ? " (SSL)" : "") + "...");
             Javalin app = Javalin.create(javalinConfig -> {
                         if (sslPlugin != null) {
                             javalinConfig.plugins.register(sslPlugin);
                         }
                     })
-                    .start(Integer.parseInt(javalinPort));
+                    .start(Integer.parseInt(webPort));
             if (!noWsIngest) {
                 app.ws("/ws", ws -> ws.onConnect(ctx -> ingestHandler.wsIngest(ws, ctx)));
             }

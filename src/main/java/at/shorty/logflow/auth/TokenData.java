@@ -3,12 +3,6 @@ package at.shorty.logflow.auth;
 import java.util.UUID;
 
 public record TokenData(UUID uuid, String token, String[] readContexts, String[] pushContexts) {
-    public TokenData(UUID uuid, String token, String[] readContexts, String[] pushContexts) {
-        this.uuid = uuid;
-        this.token = token;
-        this.readContexts = readContexts;
-        this.pushContexts = pushContexts;
-    }
 
     public boolean isAllowedToRead(String context) {
         for (String readContext : readContexts) {
