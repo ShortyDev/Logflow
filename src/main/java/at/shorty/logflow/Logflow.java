@@ -1,32 +1,21 @@
 package at.shorty.logflow;
 
 import at.shorty.logflow.auth.AuthHandler;
-import at.shorty.logflow.auth.TokenData;
 import at.shorty.logflow.hikari.HikariConnectionPool;
 import at.shorty.logflow.ingest.IngestHandler;
-import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.PacketHandler;
-import at.shorty.logflow.ingest.packet.impl.InPacketLog;
-import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
 import at.shorty.logflow.ingest.source.IngestSource;
 import at.shorty.logflow.util.LogflowArgsParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import io.javalin.Javalin;
 import io.javalin.community.ssl.SSLPlugin;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
-import org.jetbrains.annotations.NotNull;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
-import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.sql.SQLException;
-import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,7 +26,7 @@ public class Logflow {
         CommandLine commandLine = LogflowArgsParser.parse(args);
         var noWebServer = commandLine.hasOption("noWebServer");
         var noWsIngest = commandLine.hasOption("noWsIngest");
-        var noHTTPIngest = commandLine.hasOption("noHTTPIngest");
+        var noHttpIngest = commandLine.hasOption("noHTTPIngest");
         var noSocketIngest = commandLine.hasOption("noSocketIngest");
         var webUseSSL = commandLine.hasOption("webUseSSL");
         var socketUseSSL = commandLine.hasOption("socketUseSSL");
@@ -60,14 +49,16 @@ public class Logflow {
         var connectionPool = new HikariConnectionPool(jdbcUrl, username, password, poolSizeInt);
         log.info("Hikari pool initialized");
 
-        var authHandler = new AuthHandler(localAuthToken, connectionPool);
         var packetHandler = new PacketHandler();
+        var authHandler = new AuthHandler(localAuthToken, connectionPool);
+        var ingestHandler = new IngestHandler(packetHandler, authHandler, connectionPool);
 
         var sslKeystorePath = System.getProperty("javax.net.ssl.keyStore");
         var sslKeystorePassword = System.getProperty("javax.net.ssl.keyStorePassword");
         var sslPemCert = System.getProperty("logflow.ssl.pem.cert");
         var sslPemPrivateKey = System.getProperty("logflow.ssl.pem.privateKey");
         var providedSsl = sslKeystorePath != null && sslKeystorePassword != null || sslPemCert != null && sslPemPrivateKey != null;
+
         if (!noWebServer) {
             log.info("Initializing web server...");
             var isSSL = false;
@@ -96,7 +87,18 @@ public class Logflow {
                 javalinPort = isSSL ? "2096" : "2086";
             }
             log.info("Starting web server on port " + javalinPort + (isSSL ? " (SSL)" : "") + "...");
-            startWebServer(sslPlugin, authHandler, packetHandler, connectionPool, Integer.parseInt(javalinPort), noWsIngest, noHTTPIngest);
+            Javalin app = Javalin.create(javalinConfig -> {
+                        if (sslPlugin != null) {
+                            javalinConfig.plugins.register(sslPlugin);
+                        }
+                    })
+                    .start(Integer.parseInt(javalinPort));
+            if (!noWsIngest) {
+                app.ws("/ws", ws -> ws.onConnect(ctx -> ingestHandler.wsIngest(ws, ctx)));
+            }
+            if (!noHttpIngest) {
+                app.post("/log", ingestHandler::httpIngest);
+            }
         }
 
         if (!noSocketIngest) {
@@ -117,14 +119,13 @@ public class Logflow {
                 log.info("Starting socket server on port " + socketPort + (isSSL ? " (SSL)" : "") + "...");
                 var finalIsSSL = isSSL;
                 var finalSocketPort = socketPort;
-                var logAction = new LogAction(connectionPool);
                 if (finalIsSSL) {
                     var sslServerSocketFactory = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
                     try (var sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(Integer.parseInt(finalSocketPort))) {
                         log.info("SSL socket server started");
                         while (true) {
                             var socket = sslServerSocket.accept();
-                            new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
+                            ingestHandler.ingest(IngestSource.from(socket), false);
                         }
                     } catch (IOException e) {
                         log.error("Failed to start SSL socket server", e);
@@ -134,7 +135,7 @@ public class Logflow {
                         log.info("Socket server started");
                         while (true) {
                             var socket = serverSocket.accept();
-                            new IngestHandler(IngestSource.from(socket), packetHandler, authHandler, logAction, false);
+                            ingestHandler.ingest(IngestSource.from(socket), false);
                         }
                     } catch (IOException e) {
                         log.error("Failed to start socket server", e);
@@ -151,112 +152,6 @@ public class Logflow {
         }));
         log.info("Logflow started");
         setupDatabase(connectionPool);
-    }
-
-    private void startWebServer(SSLPlugin sslPlugin, AuthHandler authHandler, PacketHandler packetHandler, HikariConnectionPool connectionPool, int javalinPort, boolean noWsIngest, boolean noHttpIngest) {
-        Javalin app = Javalin.create(javalinConfig -> {
-                    if (sslPlugin != null) {
-                        javalinConfig.plugins.register(sslPlugin);
-                    }
-                })
-                .start(javalinPort);
-        if (!noWsIngest) {
-            app.ws("/ws", ws -> ws.onConnect(ctx -> {
-                var token = ctx.header("Authorization");
-                if (token == null) {
-                    log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
-                    ctx.session.close();
-                    return;
-                }
-                if (!authHandler.authenticate(token)) {
-                    var outPacketAuthResponse = new OutPacketAuthResponse();
-                    outPacketAuthResponse.setSuccess(false);
-                    var json = packetHandler.getObjectMapper().writeValueAsString(outPacketAuthResponse);
-                    ctx.send(json);
-                    ctx.session.close();
-                    log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
-                    return;
-                }
-                var address = InetAddress.getByName(ctx.host());
-                var pipedOutputStream = new PipedOutputStream();
-                var pipedInputStream = new PipedInputStream(pipedOutputStream);
-                var outputStream = new OutputStream() {
-                    @Override
-                    public void write(int b) {
-                        ctx.send(b);
-                    }
-
-                    @Override
-                    public void write(byte @NotNull [] b) {
-                        ctx.send(new String(b));
-                    }
-                };
-                ws.onMessage(msgCtx -> {
-                    try {
-                        pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
-                    } catch (IOException e) {
-                        log.warn("Failed to write to piped output stream", e);
-                    }
-                });
-                log.info("Successfully authenticated websocket connection from {}", ctx.host());
-                var ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
-                    try {
-                        pipedInputStream.close();
-                        pipedOutputStream.close();
-                        ctx.closeSession();
-                    } catch (IOException e) {
-                        log.warn("Failed to close piped streams and wsContext", e);
-                    }
-                    return null;
-                }, IngestSource.Type.WEBSOCKET);
-                var logAction = new LogAction(connectionPool);
-                new IngestHandler(ingestSource, packetHandler, authHandler, logAction, true);
-            }));
-        }
-        if (!noHttpIngest) {
-            app.post("/log", handler -> {
-                String authToken = handler.req().getHeader("Authorization");
-                if (authToken == null) {
-                    log.warn("Failed to authenticate HTTP request from {} (no auth token provided)", handler.req().getRemoteAddr());
-                    handler.status(401);
-                    return;
-                }
-                if (!authHandler.authenticate(authToken)) {
-                    log.warn("Failed to authenticate HTTP request from {} (invalid auth token)", handler.req().getRemoteAddr());
-                    handler.status(401);
-                    return;
-                }
-                var logAction = new LogAction(connectionPool);
-                try {
-                    var inPacketLog = packetHandler.getObjectMapper().readValue(handler.body(), InPacketLog.class);
-                    inPacketLog.setSourceIp(handler.ip());
-                    if (inPacketLog.getContent() != null) {
-                        inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
-                    }
-                    if (inPacketLog.getTags() == null) {
-                        inPacketLog.setTags(new String[0]);
-                    }
-                    var outPacketLogResponse = IngestHandler.createOutPacketLogResponse(inPacketLog);
-                    var json = packetHandler.getObjectMapper().writeValueAsString(outPacketLogResponse);
-                    handler.result(json);
-                    if (!outPacketLogResponse.isSuccess()) {
-                        log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
-                        return;
-                    }
-                    TokenData tokenData = authHandler.getTokenDataCache().get(authToken, 5000);
-                    if (!tokenData.isAllowedToPush(inPacketLog.getContext())) {
-                        log.warn("Failed to log from {} -> Reason: No permissions - Context not allowed", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp() + " (token affected: " + tokenData.uuid() + ")");
-                        return;
-                    }
-                    logAction.log(inPacketLog);
-                    log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
-                } catch (JsonProcessingException e) {
-                    log.warn("Invalid packet received ({}) -> {}", handler.ip(), handler.body());
-                } catch (SQLException e) {
-                    log.warn("Failed to save log from {} -> {}", handler.ip(), e.getMessage());
-                }
-            });
-        }
     }
 
     private void setupDatabase(HikariConnectionPool connectionPool) {

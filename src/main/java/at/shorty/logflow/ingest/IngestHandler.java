@@ -2,6 +2,7 @@ package at.shorty.logflow.ingest;
 
 import at.shorty.logflow.auth.AuthHandler;
 import at.shorty.logflow.auth.TokenData;
+import at.shorty.logflow.hikari.HikariConnectionPool;
 import at.shorty.logflow.ingest.data.LogAction;
 import at.shorty.logflow.ingest.packet.PacketHandler;
 import at.shorty.logflow.ingest.packet.impl.InPacketAuth;
@@ -10,22 +11,125 @@ import at.shorty.logflow.ingest.packet.impl.OutPacketAuthResponse;
 import at.shorty.logflow.ingest.packet.impl.OutPacketLogResponse;
 import at.shorty.logflow.ingest.source.IngestSource;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import io.javalin.http.Context;
+import io.javalin.websocket.WsConfig;
+import io.javalin.websocket.WsContext;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.net.InetAddress;
 import java.net.SocketException;
 import java.sql.SQLException;
 import java.util.Base64;
 
 @Slf4j
+@RequiredArgsConstructor
 public class IngestHandler {
 
-    public IngestHandler(IngestSource ingestSource, PacketHandler packetHandler, AuthHandler authHandler, LogAction logAction, boolean preAuth) {
+    private final PacketHandler packetHandler;
+    private final AuthHandler authHandler;
+    private final HikariConnectionPool connectionPool;
+
+    public void wsIngest(WsConfig ws, WsContext ctx) throws IOException {
+        var token = ctx.header("Authorization");
+        if (token == null) {
+            log.warn("Failed to authenticate websocket connection from {} (no auth token provided)", ctx.host());
+            ctx.session.close();
+            return;
+        }
+        if (!authHandler.authenticate(token)) {
+            var outPacketAuthResponse = new OutPacketAuthResponse();
+            outPacketAuthResponse.setSuccess(false);
+            var json = packetHandler.getObjectMapper().writeValueAsString(outPacketAuthResponse);
+            ctx.send(json);
+            ctx.session.close();
+            log.warn("Failed to authenticate websocket connection from {} (invalid auth token)", ctx.host());
+            return;
+        }
+        var address = InetAddress.getByName(ctx.host());
+        var pipedOutputStream = new PipedOutputStream();
+        var pipedInputStream = new PipedInputStream(pipedOutputStream);
+        var outputStream = new OutputStream() {
+            @Override
+            public void write(int b) {
+                ctx.send(b);
+            }
+
+            @Override
+            public void write(byte @NotNull [] b) {
+                ctx.send(new String(b));
+            }
+        };
+        ws.onMessage(msgCtx -> {
+            try {
+                pipedOutputStream.write((msgCtx.message() + "\n").getBytes());
+            } catch (IOException e) {
+                log.warn("Failed to write to piped output stream", e);
+            }
+        });
+        log.info("Successfully authenticated websocket connection from {}", ctx.host());
+        var ingestSource = new IngestSource(address, pipedInputStream, outputStream, (v) -> {
+            try {
+                pipedInputStream.close();
+                pipedOutputStream.close();
+                ctx.closeSession();
+            } catch (IOException e) {
+                log.warn("Failed to close piped streams and wsContext", e);
+            }
+            return null;
+        }, IngestSource.Type.WEBSOCKET);
+        ingest(ingestSource, true);
+    }
+
+    public void httpIngest(Context handler) {
+        String authToken = handler.req().getHeader("Authorization");
+        if (authToken == null) {
+            log.warn("Failed to authenticate HTTP request from {} (no auth token provided)", handler.req().getRemoteAddr());
+            handler.status(401);
+            return;
+        }
+        if (!authHandler.authenticate(authToken)) {
+            log.warn("Failed to authenticate HTTP request from {} (invalid auth token)", handler.req().getRemoteAddr());
+            handler.status(401);
+            return;
+        }
+        var logAction = new LogAction(connectionPool);
+        try {
+            var inPacketLog = packetHandler.getObjectMapper().readValue(handler.body(), InPacketLog.class);
+            inPacketLog.setSourceIp(handler.ip());
+            if (inPacketLog.getContent() != null) {
+                inPacketLog.setContent(new String(Base64.getDecoder().decode(inPacketLog.getContent())));
+            }
+            if (inPacketLog.getTags() == null) {
+                inPacketLog.setTags(new String[0]);
+            }
+            var outPacketLogResponse = validatePacketAndReturnResponse(inPacketLog);
+            var json = packetHandler.getObjectMapper().writeValueAsString(outPacketLogResponse);
+            handler.result(json);
+            if (!outPacketLogResponse.isSuccess()) {
+                log.warn("Failed to log from {} -> Reason: {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), outPacketLogResponse.getMessage());
+                return;
+            }
+            TokenData tokenData = authHandler.getTokenDataCache().get(authToken, 5000);
+            if (!tokenData.isAllowedToPush(inPacketLog.getContext())) {
+                log.warn("Failed to log from {} -> Reason: No permissions - Context not allowed", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp() + " (token affected: " + tokenData.uuid() + ")");
+                return;
+            }
+            logAction.log(inPacketLog);
+            log.debug("Received log from {} -> {}", inPacketLog.getSource() + "@" + inPacketLog.getSourceIp(), inPacketLog.getContent());
+        } catch (JsonProcessingException e) {
+            log.warn("Invalid packet received ({}) -> {}", handler.ip(), handler.body());
+        } catch (SQLException e) {
+            log.warn("Failed to save log from {} -> {}", handler.ip(), e.getMessage());
+        }
+    }
+
+    public void ingest(IngestSource ingestSource, boolean preAuth) {
         new Thread(() -> {
             String authToken = null;
+            var logAction = new LogAction(connectionPool);
             try (var bufferedReader = new BufferedReader(new InputStreamReader(ingestSource.inputStream()))) {
                 String line;
                 var authenticated = preAuth;
@@ -63,7 +167,7 @@ public class IngestHandler {
                             if (inPacketLog.getTags() == null) {
                                 inPacketLog.setTags(new String[0]);
                             }
-                            var outPacketLogResponse = createOutPacketLogResponse(inPacketLog);
+                            var outPacketLogResponse = validatePacketAndReturnResponse(inPacketLog);
                             var json = packetHandler.getObjectMapper().writeValueAsString(outPacketLogResponse);
                             ingestSource.outputStream().write((json + "\n").getBytes());
                             if (!outPacketLogResponse.isSuccess()) {
@@ -94,7 +198,7 @@ public class IngestHandler {
     }
 
     @NotNull
-    public static OutPacketLogResponse createOutPacketLogResponse(InPacketLog inPacketLog) {
+    public OutPacketLogResponse validatePacketAndReturnResponse(InPacketLog inPacketLog) {
         var outPacketLogResponse = new OutPacketLogResponse();
         for (String tag : inPacketLog.getTags()) {
             if (!tag.matches("^[a-zA-Z0-9_]*$")) {

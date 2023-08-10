@@ -47,9 +47,4 @@ public class AuthHandler {
         return localAuthToken.equals(token) || tokenData != null;
     }
 
-    public enum Action {
-        READ,
-        PUSH
-    }
-
 }
