@@ -5,7 +5,7 @@ import java.util.UUID;
 public record TokenData(UUID uuid, String token, String[] readContexts, String[] pushContexts) {
 
     public boolean isAllowedToRead(String context) {
-        for (String readContext : readContexts) {
+        for (var readContext : readContexts) {
             if (readContext.equals(context)) {
                 return true;
             }
@@ -14,7 +14,7 @@ public record TokenData(UUID uuid, String token, String[] readContexts, String[]
     }
 
     public boolean isAllowedToPush(String context) {
-        for (String pushContext : pushContexts) {
+        for (var pushContext : pushContexts) {
             if (pushContext.equals(context)) {
                 return true;
             }

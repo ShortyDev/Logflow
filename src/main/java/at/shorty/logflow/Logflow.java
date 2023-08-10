@@ -9,7 +9,6 @@ import at.shorty.logflow.util.LogflowArgsParser;
 import io.javalin.Javalin;
 import io.javalin.community.ssl.SSLPlugin;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.cli.CommandLine;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
@@ -23,7 +22,7 @@ import java.util.UUID;
 public class Logflow {
 
     public void init(String[] args) {
-        CommandLine commandLine = LogflowArgsParser.parse(args);
+        var commandLine = LogflowArgsParser.parse(args);
         var noWebServer = commandLine.hasOption("noWebServer");
         var noWsIngest = commandLine.hasOption("noWsIngest");
         var noHttpIngest = commandLine.hasOption("noHTTPIngest");
@@ -36,7 +35,7 @@ public class Logflow {
         var jdbcUrl = System.getenv("LOGFLOW_HIKARI_JDBC_URL");
         var username = System.getenv("LOGFLOW_HIKARI_USERNAME");
         var password = System.getenv("LOGFLOW_HIKARI_PASSWORD");
-        Optional<String> poolSize = Optional.ofNullable(System.getenv("LOGFLOW_HIKARI_POOL_SIZE"));
+        var poolSize = Optional.ofNullable(System.getenv("LOGFLOW_HIKARI_POOL_SIZE"));
         var poolSizeInt = poolSize.map(Integer::parseInt).orElse(10);
         if (localAuthToken == null) {
             localAuthToken = UUID.randomUUID().toString();
@@ -87,7 +86,7 @@ public class Logflow {
                 webPort = isSSL ? "2096" : "2086";
             }
             log.info("Starting web server on port " + webPort + (isSSL ? " (SSL)" : "") + "...");
-            Javalin app = Javalin.create(javalinConfig -> {
+            var app = Javalin.create(javalinConfig -> {
                         if (sslPlugin != null) {
                             javalinConfig.plugins.register(sslPlugin);
                         }

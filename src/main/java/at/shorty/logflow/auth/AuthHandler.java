@@ -6,7 +6,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.UUID;
 
@@ -26,7 +25,7 @@ public class AuthHandler {
             if (connectionPool == null)
                 return null;
             try (var connection = connectionPool.getConnection()) {
-                PreparedStatement statement = connection.prepareStatement("SELECT * FROM tokens WHERE token = ?");
+                var statement = connection.prepareStatement("SELECT * FROM tokens WHERE token = ?");
                 statement.setString(1, reference);
                 var resultSet = statement.executeQuery();
                 if (resultSet.next()) {
@@ -43,7 +42,7 @@ public class AuthHandler {
         if (token.length() > 1024) {
             return false;
         }
-        TokenData tokenData = tokenDataCache.get(token, 1500);
+        var tokenData = tokenDataCache.get(token, 1500);
         return localAuthToken.equals(token) || tokenData != null;
     }
 
