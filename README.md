@@ -91,8 +91,7 @@ The fields `timestamp`, `level`, `source` and `context` are required. The other 
 
 ### TCP-Sockets
 
-The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, it supports SSL and plain (
-see [Starting the application](#starting-the-application)). The first line of the message must be the token. The rest of
+The TCP-Sockets ingestion is the most flexible. It is a simple TCP connection, it supports SSL and plain (see [Starting the application](#starting-the-application)). The first line of the message must be the token. The rest of
 the message must equal the following JSON (example):
 
 ```json
