@@ -164,7 +164,7 @@ public class Logflow {
                     "source_ip VARCHAR(46) NOT NULL, " +
                     "context VARCHAR(255) NOT NULL, " +
                     "tags VARCHAR(4096) NOT NULL, " +
-                    "metadata VARCHAR(255), " +
+                    "metadata TEXT, " +
                     "level VARCHAR(15) NOT NULL, " +
                     "content TEXT, " +
                     "PRIMARY KEY (id))")) {
